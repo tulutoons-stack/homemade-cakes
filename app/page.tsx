@@ -10,16 +10,20 @@ import { supabase } from "./supabase";
 
 export default function ResponsiveWinniClone() {
   const [liveProducts, setLiveProducts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
+  
+  // ZOMATO STYLE CART STATE 🛒
+  const [cart, setCart] = useState<Record<string, number>>({});
 
-  // SUPABASE CLOUD CONNECTION
   useEffect(() => {
     fetchCloudProducts();
   }, []);
 
   const fetchCloudProducts = async () => {
+    setIsLoading(true);
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -27,53 +31,34 @@ export default function ResponsiveWinniClone() {
     
     if (data) setLiveProducts(data);
     if (error) console.error("Error fetching live products:", error);
+    setIsLoading(false);
   };
 
-  // DUMMY PRODUCTS (Agar Supabase khali ho tab dikhega)
   const defaultProducts = [
-    { 
-      name: "Yummylicious Chocolate Cake", 
-      price: 529, 
-      mrp: 779, 
-      discount: "32% Off", 
-      rating: "4.7", 
-      reviews: "690", 
-      delivery: "Today", 
-      img_url: "https://images.unsplash.com/photo-1578985545062-69928b1ea383?auto=format&fit=crop&w=600&q=80" 
-    },
-    { 
-      name: "Butterscotch Flavorsome Cake", 
-      price: 499, 
-      mrp: 699, 
-      discount: "28% Off", 
-      rating: "4.5", 
-      reviews: "320", 
-      delivery: "Today", 
-      img_url: "https://images.unsplash.com/photo-1557925923-33b251a3ea38?auto=format&fit=crop&w=600&q=80" 
-    },
-    { 
-      name: "Belgium Chocolate Truffle", 
-      price: 699, 
-      mrp: 999, 
-      discount: "30% Off", 
-      rating: "4.8", 
-      reviews: "812", 
-      delivery: "Tomorrow", 
-      img_url: "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?auto=format&fit=crop&w=600&q=80" 
-    },
-    { 
-      name: "Delicious Pineapple Cake", 
-      price: 449, 
-      mrp: 599, 
-      discount: "25% Off", 
-      rating: "4.4", 
-      reviews: "450", 
-      delivery: "Today", 
-      img_url: "https://images.unsplash.com/photo-1464349095431-e9a21285b5f3?auto=format&fit=crop&w=600&q=80" 
-    }
+    { name: "Yummylicious Chocolate Cake", price: 529, mrp: 779, discount: "32% Off", rating: "4.7", reviews: "690", delivery: "Today", img_url: "https://images.unsplash.com/photo-1578985545062-69928b1ea383?auto=format&fit=crop&w=600&q=80" },
+    { name: "Butterscotch Flavorsome Cake", price: 499, mrp: 699, discount: "28% Off", rating: "4.5", reviews: "320", delivery: "Today", img_url: "https://images.unsplash.com/photo-1557925923-33b251a3ea38?auto=format&fit=crop&w=600&q=80" },
+    { name: "Belgium Chocolate Truffle", price: 699, mrp: 999, discount: "30% Off", rating: "4.8", reviews: "812", delivery: "Tomorrow", img_url: "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?auto=format&fit=crop&w=600&q=80" },
+    { name: "Delicious Pineapple Cake", price: 449, mrp: 599, discount: "25% Off", rating: "4.4", reviews: "450", delivery: "Today", img_url: "https://images.unsplash.com/photo-1464349095431-e9a21285b5f3?auto=format&fit=crop&w=600&q=80" }
   ];
 
   const displayProducts = liveProducts.length > 0 ? liveProducts : defaultProducts;
+
+  // CART LOGIC FUNCTION
+  const updateCart = (productId: string, change: number) => {
+    setCart(prev => {
+      const currentQty = prev[productId] || 0;
+      const newQty = currentQty + change;
+      if (newQty <= 0) {
+        const newCart = { ...prev };
+        delete newCart[productId];
+        return newCart;
+      }
+      return { ...prev, [productId]: newQty };
+    });
+  };
+
+  // Calculate total items in cart for badges
+  const totalCartItems = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +80,7 @@ export default function ResponsiveWinniClone() {
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}} />
 
-      {/* ================= 1. TOP UTILITY BAR (Restored) ================= */}
+      {/* ================= TOP UTILITY BAR ================= */}
       <div className="hidden md:flex justify-end items-center px-4 py-1 text-[12px] text-[#666666] bg-white border-b border-gray-100">
         <div className="flex items-center gap-3">
           <a href="#" className="hover:text-[#e8416d]">Help</a>
@@ -110,10 +95,9 @@ export default function ResponsiveWinniClone() {
         </div>
       </div>
 
-      {/* ================= 2. RESPONSIVE HEADER ================= */}
-      <header className="px-3 md:px-8 py-2 md:py-3 border-b border-gray-200 sticky top-0 bg-white z-40">
+      {/* ================= RESPONSIVE HEADER ================= */}
+      <header className="px-3 md:px-8 py-2 md:py-3 border-b border-gray-200 sticky top-0 bg-white z-40 shadow-sm">
         <div className="flex items-center justify-between">
-          
           <div className="md:hidden flex items-center">
             <Menu className="w-6 h-6 text-gray-700" />
           </div>
@@ -132,11 +116,11 @@ export default function ResponsiveWinniClone() {
           </div>
 
           <div className="hidden md:flex flex-1 max-w-[800px] ml-12 mr-6 gap-4">
-            <div className="flex-1 flex items-center bg-[#f1f1f1] rounded-[4px] px-3 py-[9px]">
+            <div className="flex-1 flex items-center bg-[#f1f1f1] rounded-[8px] px-4 py-[10px]">
               <input type="text" placeholder="Search 5000+ flowers, cakes, gifts etc" className="bg-transparent border-none outline-none w-full text-[14px] text-gray-700" />
               <Search className="w-5 h-5 text-gray-400 ml-2" />
             </div>
-            <div className="flex items-center bg-[#fdf1f5] rounded-[4px] px-3 py-[9px] cursor-pointer">
+            <div className="flex items-center bg-[#fdf1f5] rounded-[8px] px-3 py-[10px] cursor-pointer">
               <div className="flex items-center gap-2">
                 <img src="https://flagcdn.com/w20/in.png" alt="India" className="w-[18px] h-[12px] object-cover" />
                 <span className="text-[13px] font-bold text-black">IND</span>
@@ -152,9 +136,14 @@ export default function ResponsiveWinniClone() {
           <div className="flex items-center gap-4 md:gap-6 text-[#555]">
             <User className="hidden md:block w-6 h-6 cursor-pointer hover:text-[#e8416d] fill-current" />
             <Heart className="hidden md:block w-6 h-6 cursor-pointer hover:text-[#e8416d] fill-current" />
-            <div className="relative cursor-pointer">
-              <ShoppingCart className="w-6 h-6 hover:text-[#e8416d] fill-current" />
-              <span className="absolute -top-1.5 -right-2 bg-[#e8416d] text-white text-[9px] md:text-[10px] font-bold rounded-full w-[16px] md:w-[18px] h-[16px] md:h-[18px] flex items-center justify-center">0</span>
+            <div className="relative cursor-pointer group">
+              <ShoppingCart className="w-6 h-6 group-hover:text-[#e8416d] fill-current transition-colors" />
+              {/* LIVE CART BADGE */}
+              {totalCartItems > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-[#e8416d] text-white text-[10px] font-bold rounded-full w-[18px] h-[18px] flex items-center justify-center shadow-sm animate-pulse">
+                  {totalCartItems}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -165,8 +154,8 @@ export default function ResponsiveWinniClone() {
         </div>
       </header>
 
-      {/* ================= 3. CATEGORY NAVIGATION (Restored Full) ================= */}
-      <nav className="px-3 md:px-8 py-2 md:py-3 flex items-center overflow-x-auto no-scrollbar shadow-[0_2px_4px_rgba(0,0,0,0.04)] text-[11px] md:text-[12.5px] text-[#333333] mb-4 whitespace-nowrap">
+      {/* ================= CATEGORY NAVIGATION ================= */}
+      <nav className="px-3 md:px-8 py-2 md:py-3 flex items-center overflow-x-auto no-scrollbar shadow-[0_2px_4px_rgba(0,0,0,0.04)] text-[11px] md:text-[12.5px] text-[#333333] mb-4 whitespace-nowrap bg-white">
         <div className="flex gap-5 md:gap-7 items-center w-full">
           <a href="#" className="font-bold text-[#d11243]">EXPRESS</a>
           <a href="#" className="hover:text-[#e8416d] font-semibold md:font-normal">CAKES</a>
@@ -201,7 +190,7 @@ export default function ResponsiveWinniClone() {
               { name: "Pineapple", img: "https://images.unsplash.com/photo-1464349095431-e9a21285b5f3?w=150&h=150&fit=crop" },
               { name: "Red Velvet", img: "https://images.unsplash.com/photo-1616541823729-00fe0aacd32c?w=150&h=150&fit=crop" }
             ].map((item, i) => (
-              <div key={i} className="flex flex-col items-center gap-1.5 md:gap-2 cursor-pointer flex-shrink-0">
+              <div key={i} className="flex flex-col items-center gap-1.5 md:gap-2 cursor-pointer flex-shrink-0 hover:scale-105 transition-transform">
                 <div className="w-[65px] h-[65px] md:w-[90px] md:h-[90px] rounded-[16px] flex items-center justify-center p-0.5">
                   <img src={item.img} alt={item.name} className="w-full h-full object-cover rounded-[14px] shadow-sm border border-gray-100/50" />
                 </div>
@@ -211,11 +200,11 @@ export default function ResponsiveWinniClone() {
           </div>
         </div>
 
-        {/* Filters bar (Restored) */}
-        <div className="bg-[#f5f5f5] rounded-[4px] px-3 py-2 md:px-4 md:py-2.5 flex flex-col md:flex-row md:items-center justify-between mb-4 md:mb-6 gap-3">
+        {/* Filters bar */}
+        <div className="bg-[#f5f5f5] rounded-[8px] px-3 py-2 md:px-4 md:py-2.5 flex flex-col md:flex-row md:items-center justify-between mb-4 md:mb-6 gap-3">
           <div className="flex items-center gap-1 md:gap-2">
             <h2 className="text-[14px] md:text-[16px] font-bold text-[#333333]">Online Cake Delivery</h2>
-            <span className="text-[11px] md:text-[13px] text-gray-600">({displayProducts.length} items)</span>
+            {!isLoading && <span className="text-[11px] md:text-[13px] text-gray-600">({displayProducts.length} items)</span>}
           </div>
           <div className="flex overflow-x-auto no-scrollbar w-full md:w-auto gap-4 md:gap-0 pb-1 md:pb-0">
             <div className="flex items-center gap-2 md:gap-3 cursor-pointer md:px-4 flex-shrink-0">
@@ -244,38 +233,86 @@ export default function ResponsiveWinniClone() {
           </div>
         </div>
 
-        {/* ================= DYNAMIC PRODUCT GRID ================= */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          {displayProducts.map((product, idx) => (
-            <div key={idx} className="cursor-pointer flex flex-col gap-2 group">
-              <div className="relative rounded-[12px] md:rounded-[16px] overflow-hidden bg-[#f9f9f9] border border-gray-100 shadow-sm transition hover:shadow-md h-[180px] md:h-[290px]">
-                <img src={product.img_url} alt={product.name} className="w-full h-full object-cover" />
-                <div className="absolute bottom-3 right-3 bg-white/95 backdrop-blur-sm w-7 h-7 rounded-full flex items-center justify-center shadow-[0_2px_8px_rgba(0,0,0,0.15)] group-hover:scale-105 transition-transform border border-gray-100">
-                  <Heart className="w-4 h-4 text-red-500 fill-current" />
-                </div>
-              </div>
-              <div className="flex flex-col px-1.5 pt-1">
-                <h3 className="text-[14px] md:text-[15px] font-bold text-gray-800 tracking-tight leading-snug line-clamp-2 md:h-11 h-9">{product.name}</h3>
-                <div className="flex items-center flex-wrap gap-2 mt-2.5">
-                  <span className="text-lg md:text-xl font-black text-gray-900 leading-none">₹{product.price}</span>
-                  {product.mrp && <span className="text-xs md:text-sm text-gray-400 line-through leading-none mt-0.5">₹{product.mrp}</span>}
-                  {product.discount && <span className="bg-[#e8fbf2] text-[#0f5132] font-extrabold text-[10px] md:text-[11px] px-1.5 py-0.5 rounded leading-none border border-[#d1e7dd]">{product.discount}</span>}
-                </div>
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-gray-100 flex-wrap">
-                  <span className="text-[11px] md:text-[12px] text-gray-500 font-medium">Earliest Delivery: <b className="text-green-600 font-extrabold">{product.delivery}</b></span>
-                  <div className="flex items-center gap-2">
-                    <span className="bg-green-700 text-white font-black text-[11px] px-1.5 py-0.5 rounded flex items-center gap-0.5">{product.rating} <Star className="w-2.5 h-2.5 fill-white text-white" /></span>
-                    <span className="text-[10px] md:text-[11px] text-gray-400 font-semibold hidden md:block">{product.reviews} Reviews</span>
+        {/* ================= PREMIUM DYNAMIC PRODUCT GRID (ZOMATO STYLE) ================= */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 w-full col-span-2 lg:col-span-4">
+             <div className="animate-spin w-12 h-12 border-4 border-[#fdf1f5] border-t-[#e8416d] rounded-full mb-4"></div>
+             <p className="text-[#e8416d] font-bold text-[15px] animate-pulse tracking-wide">Fresh Cakes Load Ho Rahe Hain...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
+            {displayProducts.map((product, idx) => {
+              // Har product ke liye ek unique ID chahiye (agar cloud me ID na ho to index aur naam use karenge)
+              const productId = product.id || `${product.name}-${idx}`;
+              const cartQty = cart[productId] || 0;
+
+              return (
+                <div key={idx} className="bg-white rounded-[16px] md:rounded-[20px] overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.04)] hover:shadow-[0_15px_30px_rgba(232,65,109,0.12)] transition-all duration-300 group border border-gray-100 flex flex-col hover:-translate-y-1 cursor-pointer">
+                  
+                  {/* Image Section */}
+                  <div className="relative aspect-[4/5] md:aspect-[4/3] overflow-hidden bg-[#f8f8f8]">
+                    <img src={product.img_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-in-out" />
+                    
+                    {product.discount && (
+                      <div className="absolute top-2 left-2 bg-gradient-to-r from-[#e8416d] to-[#d11243] text-white text-[10px] md:text-[11px] font-black px-2 py-0.5 rounded-full shadow-md z-10 tracking-wide">
+                        {product.discount}
+                      </div>
+                    )}
+                    <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-white text-gray-300 hover:text-red-500 transition-colors z-10">
+                      <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current" />
+                    </div>
                   </div>
+                  
+                  {/* Content Section */}
+                  <div className="p-3 md:p-4 flex flex-col flex-1">
+                    <h3 className="text-[13px] md:text-[16px] font-extrabold text-[#222] leading-tight line-clamp-2 group-hover:text-[#e8416d] transition-colors mb-2">
+                      {product.name}
+                    </h3>
+                    
+                    <div className="flex items-center gap-2 mb-3 mt-auto">
+                       <span className="bg-[#1b7e3e] text-white font-bold text-[9px] md:text-[11px] px-1.5 py-0.5 rounded-[4px] flex items-center gap-0.5">
+                         {product.rating || "4.5"} <Star className="w-2.5 h-2.5 fill-white text-white" />
+                       </span>
+                       <span className="text-[10px] md:text-[12px] text-gray-400 font-semibold truncate">{product.reviews || "120"} Reviews</span>
+                    </div>
+
+                    {/* ZOMATO STYLE PRICE & ADD TO CART ROW */}
+                    <div className="flex items-end justify-between pt-3 border-t border-gray-100/80">
+                      <div className="flex flex-col">
+                        {product.mrp && <span className="text-[10px] md:text-[12px] text-gray-400 line-through leading-none mb-1 font-medium">₹{product.mrp}</span>}
+                        <span className="text-[16px] md:text-[20px] font-black text-black leading-none tracking-tight">₹{product.price}</span>
+                      </div>
+                      
+                      {/* SMART ADD BUTTON */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        {cartQty > 0 ? (
+                          <div className="flex items-center justify-between bg-[#fdf1f5] border border-[#e8416d] text-[#e8416d] rounded-lg w-[70px] md:w-[85px] h-[28px] md:h-[34px] font-bold shadow-sm">
+                            <button onClick={() => updateCart(productId, -1)} className="w-1/3 h-full flex items-center justify-center hover:bg-[#e8416d] hover:text-white rounded-l-lg transition-colors text-[14px] md:text-[16px]">-</button>
+                            <span className="w-1/3 text-center text-[12px] md:text-[14px] font-extrabold">{cartQty}</span>
+                            <button onClick={() => updateCart(productId, 1)} className="w-1/3 h-full flex items-center justify-center hover:bg-[#e8416d] hover:text-white rounded-r-lg transition-colors text-[14px] md:text-[16px]">+</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => updateCart(productId, 1)} className="bg-[#fdf1f5] text-[#e8416d] border border-[#f8d0dc] text-[11px] md:text-[13px] font-extrabold px-4 py-1.5 md:py-2 rounded-lg shadow-sm hover:bg-[#e8416d] hover:text-white transition-all w-[70px] md:w-[85px] uppercase tracking-wide">
+                            ADD
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="text-[10px] md:text-[11px] text-gray-500 font-medium mt-3">
+                      Delivery: <b className="text-[#1b7e3e] font-black">{product.delivery || "Today"}</b>
+                    </div>
+                  </div>
+
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </main>
 
-      {/* ================= 8. FOOTER WITH ADMIN PANEL (Restored Full) ================= */}
-      <footer className="bg-[#f9f9f9] border-t border-gray-200 pt-10 pb-24 md:pb-10 text-gray-700">
+      {/* ================= FOOTER WITH ADMIN PANEL ================= */}
+      <footer className="bg-[#f9f9f9] border-t border-gray-200 pt-10 pb-24 md:pb-10 text-gray-700 mt-6">
         <div className="max-w-[1300px] mx-auto px-4 md:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
             <div>
@@ -322,7 +359,7 @@ export default function ResponsiveWinniClone() {
         </div>
       </footer>
 
-      {/* ================= 9. SURAKSHIT PIN VERIFICATION MODAL ================= */}
+      {/* ================= SURAKSHIT PIN VERIFICATION MODAL ================= */}
       {isPinModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl relative border border-gray-100">
@@ -343,7 +380,7 @@ export default function ResponsiveWinniClone() {
         </div>
       )}
 
-      {/* ================= 10. MOBILE APP BOTTOM NAVIGATION (Restored) ================= */}
+      {/* ================= MOBILE APP BOTTOM NAVIGATION (WITH LIVE CART) ================= */}
       <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center py-2 z-50 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
         <div className="flex flex-col items-center gap-1 text-[#e8416d]">
           <HomeIcon className="w-5 h-5 fill-current" />
@@ -360,7 +397,13 @@ export default function ResponsiveWinniClone() {
         <div className="flex flex-col items-center gap-1 text-gray-500 hover:text-[#e8416d] relative">
           <ShoppingCart className="w-5 h-5" />
           <span className="text-[10px] font-medium">Cart</span>
-          <span className="absolute -top-1 -right-1 bg-[#e8416d] text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">0</span>
+          
+          {/* LIVE CART BADGE (Bottom Nav) */}
+          {totalCartItems > 0 && (
+            <span className="absolute -top-1 -right-1.5 bg-[#e8416d] text-white text-[9px] font-extrabold rounded-full w-[15px] h-[15px] flex items-center justify-center border-2 border-white">
+              {totalCartItems}
+            </span>
+          )}
         </div>
       </div>
       
