@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Image as ImageIcon, Package, Star } from "lucide-react";
+import { Plus, Trash2, Image as ImageIcon, Package, Star, Loader2 } from "lucide-react";
 import { supabase } from "../supabase";
+
 export default function AdminPanel() {
   const [products, setProducts] = useState<any[]>([]);
   const [name, setName] = useState("");
@@ -13,8 +14,12 @@ export default function AdminPanel() {
   const [reviews, setReviews] = useState("120");
   const [delivery, setDelivery] = useState("Today");
   
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState("");
+  // 4 Images ke liye state
+  const [image1, setImage1] = useState<File | null>(null);
+  const [image2, setImage2] = useState<File | null>(null);
+  const [image3, setImage3] = useState<File | null>(null);
+  const [image4, setImage4] = useState<File | null>(null);
+  
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
@@ -31,57 +36,70 @@ export default function AdminPanel() {
     if (error) console.error("Error fetching products:", error);
   };
 
-  const handleImageSelect = (e: any) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
-  };
-
   useEffect(() => {
     if (mrp && price) {
       const m = parseFloat(mrp);
       const p = parseFloat(price);
       if (m > p) {
-        setDiscount(`${Math.round(((m - p) / m) * 100)}% Off`);
+         setDiscount(`${Math.round(((m - p) / m) * 100)}% Off`);
       }
     }
   }, [price, mrp]);
 
+  // Ek common function jo koi bhi image upload karke uska URL de dega
+  const uploadSingleImage = async (file: File | null) => {
+    if (!file) return null;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('cake_images')
+      .upload(fileName, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('cake_images')
+      .getPublicUrl(fileName);
+      
+    return publicUrl;
+  };
+
   const handleAddProduct = async (e: any) => {
     e.preventDefault();
-    if (!name || !price || !imageFile) return alert("Bhai, Name, Price aur Image zaroori hai!");
+    if (!name || !price || !image1) return alert("Bhai, Name, Price aur Main Image (Photo 1) zaroori hai!");
 
     setIsUploading(true);
     try {
-      const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('cake_images')
-        .upload(fileName, imageFile);
+      // Charo images upload karo
+      const url1 = await uploadSingleImage(image1);
+      const url2 = await uploadSingleImage(image2);
+      const url3 = await uploadSingleImage(image3);
+      const url4 = await uploadSingleImage(image4);
 
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('cake_images')
-        .getPublicUrl(fileName);
-
+      // Database me insert karo (Saari purani details ke sath 4 nayi images)
       const { error: dbError } = await supabase
         .from('products')
         .insert([{
-          name, price: parseInt(price), mrp: mrp ? parseInt(mrp) : null,
-          discount: discount || null, rating: rating || "4.5",
-          reviews: reviews || "10", delivery: delivery || "Today", img_url: publicUrl
+          name, 
+          price: parseInt(price), 
+          mrp: mrp ? parseInt(mrp) : null,
+          discount: discount || null, 
+          rating: rating || "4.5",
+          reviews: reviews || "10", 
+          delivery: delivery || "Today", 
+          img_url: url1,      // Purana column
+          img_url_2: url2,    // Naya column
+          img_url_3: url3,    // Naya column
+          img_url_4: url4     // Naya column
         }]);
 
       if (dbError) throw dbError;
 
       fetchProducts();
       setName(""); setPrice(""); setMrp(""); setDiscount("");
-      setImageFile(null); setImagePreview("");
-      alert("Product successfully uploaded to cloud! 🚀");
+      setImage1(null); setImage2(null); setImage3(null); setImage4(null);
+      alert("Product with 4 images successfully uploaded to cloud! 🚀");
     } catch (error: any) {
       console.error("Upload error:", error.message);
       alert("Error: " + error.message);
@@ -113,6 +131,7 @@ export default function AdminPanel() {
                 <label className="text-xs font-bold text-gray-700 block mb-1">Cake/Product Name *</label>
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Yummylicious Chocolate" className="w-full p-3 bg-gray-50 border rounded-xl text-sm outline-none focus:border-[#e8416d]" required />
               </div>
+              
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-1">Selling Price (₹) *</label>
@@ -123,6 +142,7 @@ export default function AdminPanel() {
                   <input type="number" value={mrp} onChange={(e) => setMrp(e.target.value)} placeholder="779" className="w-full p-3 bg-gray-50 border rounded-xl text-sm outline-none focus:border-[#e8416d]" />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-1">Discount Text</label>
@@ -135,25 +155,32 @@ export default function AdminPanel() {
                   </select>
                 </div>
               </div>
+
+              <hr className="border-gray-100 my-4" />
+              <label className="text-sm font-bold text-gray-700 block mb-2">Upload 4 Images *</label>
+              
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Ratings</label>
-                  <input type="text" value={rating} onChange={(e) => setRating(e.target.value)} placeholder="4.7" className="w-full p-3 bg-gray-50 border rounded-xl text-sm outline-none focus:border-[#e8416d]" />
+                <div className="w-full relative border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 cursor-pointer">
+                  <input type="file" required accept="image/*" onChange={(e) => setImage1(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <div className="text-gray-400 flex flex-col items-center"><ImageIcon className="w-5 h-5 mb-1" /><span className="text-[10px] font-semibold">{image1 ? image1.name : "1. Main Photo"}</span></div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Reviews</label>
-                  <input type="text" value={reviews} onChange={(e) => setReviews(e.target.value)} placeholder="690" className="w-full p-3 bg-gray-50 border rounded-xl text-sm outline-none focus:border-[#e8416d]" />
+                <div className="w-full relative border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 cursor-pointer">
+                  <input type="file" accept="image/*" onChange={(e) => setImage2(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <div className="text-gray-400 flex flex-col items-center"><ImageIcon className="w-5 h-5 mb-1" /><span className="text-[10px] font-semibold">{image2 ? image2.name : "2. Side View"}</span></div>
+                </div>
+                <div className="w-full relative border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 cursor-pointer">
+                  <input type="file" accept="image/*" onChange={(e) => setImage3(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <div className="text-gray-400 flex flex-col items-center"><ImageIcon className="w-5 h-5 mb-1" /><span className="text-[10px] font-semibold">{image3 ? image3.name : "3. Top View"}</span></div>
+                </div>
+                <div className="w-full relative border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 cursor-pointer">
+                  <input type="file" accept="image/*" onChange={(e) => setImage4(e.target.files?.[0] || null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <div className="text-gray-400 flex flex-col items-center"><ImageIcon className="w-5 h-5 mb-1" /><span className="text-[10px] font-semibold">{image4 ? image4.name : "4. Close Up"}</span></div>
                 </div>
               </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">Cake Image Upload *</label>
-                <div className="w-full relative border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 cursor-pointer transition">
-                  <input type="file" accept="image/*" onChange={handleImageSelect} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                  {imagePreview ? <img src={imagePreview} alt="Preview" className="h-20 mx-auto rounded-lg object-cover" /> : <div className="text-gray-400 flex flex-col items-center"><ImageIcon className="w-8 h-8 mb-1" /><span className="text-xs font-semibold">Click to upload</span></div>}
-                </div>
-              </div>
-              <button disabled={isUploading} type="submit" className="w-full bg-[#e8416d] text-white font-bold py-3.5 rounded-xl hover:bg-[#d11243] transition-all disabled:opacity-50">
-                {isUploading ? "Uploading to Cloud..." : "Live Website Par Daalein 🚀"}
+
+              <button disabled={isUploading} type="submit" className="w-full bg-[#e8416d] text-white font-bold py-3.5 mt-4 rounded-xl hover:bg-[#d11243] transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                {isUploading ? "Uploading 4 Images..." : "Live Website Par Daalein 🚀"}
               </button>
             </form>
           </div>

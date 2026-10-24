@@ -6,7 +6,10 @@ import {
   Calendar, ChevronDown, ArrowUpDown, Menu, 
   Home as HomeIcon, Grid, Lock, Key, X, Star
 } from "lucide-react";
+import Link from "next/link"; // Link import kiya Next.js se
 import { supabase } from "./supabase";
+// Dhyan de: Agar store folder app ke bahar hai toh '../store/cartStore' use karein
+import { useCartStore } from "./store/cartStore"; 
 
 export default function ResponsiveWinniClone() {
   const [liveProducts, setLiveProducts] = useState<any[]>([]);
@@ -15,8 +18,8 @@ export default function ResponsiveWinniClone() {
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   
-  // ZOMATO STYLE CART STATE 🛒
-  const [cart, setCart] = useState<Record<string, number>>({});
+  // GLOBAL CART STORE SE DATA NIKALA 🛒
+  const { openCart, cartItems } = useCartStore();
 
   useEffect(() => {
     fetchCloudProducts();
@@ -35,30 +38,16 @@ export default function ResponsiveWinniClone() {
   };
 
   const defaultProducts = [
-    { name: "Yummylicious Chocolate Cake", price: 529, mrp: 779, discount: "32% Off", rating: "4.7", reviews: "690", delivery: "Today", img_url: "https://images.unsplash.com/photo-1578985545062-69928b1ea383?auto=format&fit=crop&w=600&q=80" },
-    { name: "Butterscotch Flavorsome Cake", price: 499, mrp: 699, discount: "28% Off", rating: "4.5", reviews: "320", delivery: "Today", img_url: "https://images.unsplash.com/photo-1557925923-33b251a3ea38?auto=format&fit=crop&w=600&q=80" },
-    { name: "Belgium Chocolate Truffle", price: 699, mrp: 999, discount: "30% Off", rating: "4.8", reviews: "812", delivery: "Tomorrow", img_url: "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?auto=format&fit=crop&w=600&q=80" },
-    { name: "Delicious Pineapple Cake", price: 449, mrp: 599, discount: "25% Off", rating: "4.4", reviews: "450", delivery: "Today", img_url: "https://images.unsplash.com/photo-1464349095431-e9a21285b5f3?auto=format&fit=crop&w=600&q=80" }
+    { id: "1", name: "Yummylicious Chocolate Cake", price: 529, mrp: 779, discount: "32% Off", rating: "4.7", reviews: "690", delivery: "Today", img_url: "https://images.unsplash.com/photo-1578985545062-69928b1ea383?auto=format&fit=crop&w=600&q=80" },
+    { id: "2", name: "Butterscotch Flavorsome Cake", price: 499, mrp: 699, discount: "28% Off", rating: "4.5", reviews: "320", delivery: "Today", img_url: "https://images.unsplash.com/photo-1557925923-33b251a3ea38?auto=format&fit=crop&w=600&q=80" },
+    { id: "3", name: "Belgium Chocolate Truffle", price: 699, mrp: 999, discount: "30% Off", rating: "4.8", reviews: "812", delivery: "Tomorrow", img_url: "https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?auto=format&fit=crop&w=600&q=80" },
+    { id: "4", name: "Delicious Pineapple Cake", price: 449, mrp: 599, discount: "25% Off", rating: "4.4", reviews: "450", delivery: "Today", img_url: "https://images.unsplash.com/photo-1464349095431-e9a21285b5f3?auto=format&fit=crop&w=600&q=80" }
   ];
 
   const displayProducts = liveProducts.length > 0 ? liveProducts : defaultProducts;
 
-  // CART LOGIC FUNCTION
-  const updateCart = (productId: string, change: number) => {
-    setCart(prev => {
-      const currentQty = prev[productId] || 0;
-      const newQty = currentQty + change;
-      if (newQty <= 0) {
-        const newCart = { ...prev };
-        delete newCart[productId];
-        return newCart;
-      }
-      return { ...prev, [productId]: newQty };
-    });
-  };
-
   // Calculate total items in cart for badges
-  const totalCartItems = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
+  const totalCartItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +125,8 @@ export default function ResponsiveWinniClone() {
           <div className="flex items-center gap-4 md:gap-6 text-[#555]">
             <User className="hidden md:block w-6 h-6 cursor-pointer hover:text-[#e8416d] fill-current" />
             <Heart className="hidden md:block w-6 h-6 cursor-pointer hover:text-[#e8416d] fill-current" />
-            <div className="relative cursor-pointer group">
+            {/* CART ICON WITH openCart FUNCTION */}
+            <div onClick={openCart} className="relative cursor-pointer group">
               <ShoppingCart className="w-6 h-6 group-hover:text-[#e8416d] fill-current transition-colors" />
               {/* LIVE CART BADGE */}
               {totalCartItems > 0 && (
@@ -233,7 +223,7 @@ export default function ResponsiveWinniClone() {
           </div>
         </div>
 
-        {/* ================= PREMIUM DYNAMIC PRODUCT GRID (ZOMATO STYLE) ================= */}
+        {/* ================= PREMIUM DYNAMIC PRODUCT GRID ================= */}
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 w-full col-span-2 lg:col-span-4">
              <div className="animate-spin w-12 h-12 border-4 border-[#fdf1f5] border-t-[#e8416d] rounded-full mb-4"></div>
@@ -242,69 +232,59 @@ export default function ResponsiveWinniClone() {
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
             {displayProducts.map((product, idx) => {
-              // Har product ke liye ek unique ID chahiye (agar cloud me ID na ho to index aur naam use karenge)
-              const productId = product.id || `${product.name}-${idx}`;
-              const cartQty = cart[productId] || 0;
+              const productId = product.id || `${idx+1}`;
 
               return (
-                <div key={idx} className="bg-white rounded-[16px] md:rounded-[20px] overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.04)] hover:shadow-[0_15px_30px_rgba(232,65,109,0.12)] transition-all duration-300 group border border-gray-100 flex flex-col hover:-translate-y-1 cursor-pointer">
-                  
-                  {/* Image Section */}
-                  <div className="relative aspect-[4/5] md:aspect-[4/3] overflow-hidden bg-[#f8f8f8]">
-                    <img src={product.img_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-in-out" />
+                // LINK ADD KIYA HAI - Card par click karte hi details page khulega
+                <Link href={`/product/${productId}`} key={idx}>
+                  <div className="bg-white rounded-[16px] md:rounded-[20px] overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.04)] hover:shadow-[0_15px_30px_rgba(232,65,109,0.12)] transition-all duration-300 group border border-gray-100 flex flex-col hover:-translate-y-1 cursor-pointer h-full">
                     
-                    {product.discount && (
-                      <div className="absolute top-2 left-2 bg-gradient-to-r from-[#e8416d] to-[#d11243] text-white text-[10px] md:text-[11px] font-black px-2 py-0.5 rounded-full shadow-md z-10 tracking-wide">
-                        {product.discount}
+                    {/* Image Section */}
+                    <div className="relative aspect-[4/5] md:aspect-[4/3] overflow-hidden bg-[#f8f8f8]">
+                      <img src={product.img_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-in-out" />
+                      
+                      {product.discount && (
+                        <div className="absolute top-2 left-2 bg-gradient-to-r from-[#e8416d] to-[#d11243] text-white text-[10px] md:text-[11px] font-black px-2 py-0.5 rounded-full shadow-md z-10 tracking-wide">
+                          {product.discount}
+                        </div>
+                      )}
+                      <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-white text-gray-300 hover:text-red-500 transition-colors z-10">
+                        <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current" />
                       </div>
-                    )}
-                    <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-white text-gray-300 hover:text-red-500 transition-colors z-10">
-                      <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current" />
                     </div>
-                  </div>
-                  
-                  {/* Content Section */}
-                  <div className="p-3 md:p-4 flex flex-col flex-1">
-                    <h3 className="text-[13px] md:text-[16px] font-extrabold text-[#222] leading-tight line-clamp-2 group-hover:text-[#e8416d] transition-colors mb-2">
-                      {product.name}
-                    </h3>
                     
-                    <div className="flex items-center gap-2 mb-3 mt-auto">
-                       <span className="bg-[#1b7e3e] text-white font-bold text-[9px] md:text-[11px] px-1.5 py-0.5 rounded-[4px] flex items-center gap-0.5">
-                         {product.rating || "4.5"} <Star className="w-2.5 h-2.5 fill-white text-white" />
-                       </span>
-                       <span className="text-[10px] md:text-[12px] text-gray-400 font-semibold truncate">{product.reviews || "120"} Reviews</span>
-                    </div>
+                    {/* Content Section */}
+                    <div className="p-3 md:p-4 flex flex-col flex-1">
+                      <h3 className="text-[13px] md:text-[16px] font-extrabold text-[#222] leading-tight line-clamp-2 group-hover:text-[#e8416d] transition-colors mb-2">
+                        {product.name}
+                      </h3>
+                      
+                      <div className="flex items-center gap-2 mb-3 mt-auto">
+                         <span className="bg-[#1b7e3e] text-white font-bold text-[9px] md:text-[11px] px-1.5 py-0.5 rounded-[4px] flex items-center gap-0.5">
+                           {product.rating || "4.5"} <Star className="w-2.5 h-2.5 fill-white text-white" />
+                         </span>
+                         <span className="text-[10px] md:text-[12px] text-gray-400 font-semibold truncate">{product.reviews || "120"} Reviews</span>
+                      </div>
 
-                    {/* ZOMATO STYLE PRICE & ADD TO CART ROW */}
-                    <div className="flex items-end justify-between pt-3 border-t border-gray-100/80">
-                      <div className="flex flex-col">
-                        {product.mrp && <span className="text-[10px] md:text-[12px] text-gray-400 line-through leading-none mb-1 font-medium">₹{product.mrp}</span>}
-                        <span className="text-[16px] md:text-[20px] font-black text-black leading-none tracking-tight">₹{product.price}</span>
+                      <div className="flex items-end justify-between pt-3 border-t border-gray-100/80">
+                        <div className="flex flex-col">
+                          {product.mrp && <span className="text-[10px] md:text-[12px] text-gray-400 line-through leading-none mb-1 font-medium">₹{product.mrp}</span>}
+                          <span className="text-[16px] md:text-[20px] font-black text-black leading-none tracking-tight">₹{product.price}</span>
+                        </div>
+                        
+                        {/* SELECT BUTTON (Ab ye sidha Product Page par le jayega) */}
+                        <div className="bg-[#fdf1f5] text-[#e8416d] border border-[#f8d0dc] text-[10px] md:text-[12px] font-extrabold px-3 py-1.5 md:py-2 rounded-lg shadow-sm hover:bg-[#e8416d] hover:text-white transition-all uppercase tracking-wide">
+                          SELECT
+                        </div>
                       </div>
                       
-                      {/* SMART ADD BUTTON */}
-                      <div onClick={(e) => e.stopPropagation()}>
-                        {cartQty > 0 ? (
-                          <div className="flex items-center justify-between bg-[#fdf1f5] border border-[#e8416d] text-[#e8416d] rounded-lg w-[70px] md:w-[85px] h-[28px] md:h-[34px] font-bold shadow-sm">
-                            <button onClick={() => updateCart(productId, -1)} className="w-1/3 h-full flex items-center justify-center hover:bg-[#e8416d] hover:text-white rounded-l-lg transition-colors text-[14px] md:text-[16px]">-</button>
-                            <span className="w-1/3 text-center text-[12px] md:text-[14px] font-extrabold">{cartQty}</span>
-                            <button onClick={() => updateCart(productId, 1)} className="w-1/3 h-full flex items-center justify-center hover:bg-[#e8416d] hover:text-white rounded-r-lg transition-colors text-[14px] md:text-[16px]">+</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => updateCart(productId, 1)} className="bg-[#fdf1f5] text-[#e8416d] border border-[#f8d0dc] text-[11px] md:text-[13px] font-extrabold px-4 py-1.5 md:py-2 rounded-lg shadow-sm hover:bg-[#e8416d] hover:text-white transition-all w-[70px] md:w-[85px] uppercase tracking-wide">
-                            ADD
-                          </button>
-                        )}
+                      <div className="text-[10px] md:text-[11px] text-gray-500 font-medium mt-3">
+                        Delivery: <b className="text-[#1b7e3e] font-black">{product.delivery || "Today"}</b>
                       </div>
                     </div>
-                    
-                    <div className="text-[10px] md:text-[11px] text-gray-500 font-medium mt-3">
-                      Delivery: <b className="text-[#1b7e3e] font-black">{product.delivery || "Today"}</b>
-                    </div>
-                  </div>
 
-                </div>
+                  </div>
+                </Link>
               );
             })}
           </div>
@@ -381,7 +361,7 @@ export default function ResponsiveWinniClone() {
       )}
 
       {/* ================= MOBILE APP BOTTOM NAVIGATION (WITH LIVE CART) ================= */}
-      <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center py-2 z-50 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+      <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center py-2 z-40 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
         <div className="flex flex-col items-center gap-1 text-[#e8416d]">
           <HomeIcon className="w-5 h-5 fill-current" />
           <span className="text-[10px] font-bold">Home</span>
@@ -394,7 +374,9 @@ export default function ResponsiveWinniClone() {
           <User className="w-5 h-5" />
           <span className="text-[10px] font-medium">Account</span>
         </div>
-        <div className="flex flex-col items-center gap-1 text-gray-500 hover:text-[#e8416d] relative">
+        
+        {/* MOBILE BOTTOM CART ICON WITH openCart FUNCTION */}
+        <div onClick={openCart} className="flex flex-col items-center gap-1 text-gray-500 hover:text-[#e8416d] relative cursor-pointer">
           <ShoppingCart className="w-5 h-5" />
           <span className="text-[10px] font-medium">Cart</span>
           
