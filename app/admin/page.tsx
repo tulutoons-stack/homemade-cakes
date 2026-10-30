@@ -420,7 +420,7 @@ export default function SuperAdminPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                  HOME MADE CAKE AND GIFTS COMMAND CENTER
+                  SUPER ADMIN PANEL
                 </h1>
                 <span className="hidden sm:inline-flex items-center gap-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" /> LIVE
