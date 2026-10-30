@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ROYAL DIGITAL Cakes", // Aap chahein toh apna title yahan set kar sakte hain
+  title: "Hommade Cakes $ Gifts", // Aap chahein toh apna title yahan set kar sakte hain
   description: "Freshly Baked Homemade Cakes",
 };
 

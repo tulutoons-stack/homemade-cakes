@@ -1,20 +1,21 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
-  Plus, Trash2, Image as ImageIcon, Package, Star, Loader2, Edit2, 
-  ToggleLeft, ToggleRight, ShoppingBag, BarChart3, Users, 
+  Plus, Trash2, Image as ImageIcon, Package, Loader2, Edit2, 
+  ToggleLeft, ToggleRight, BarChart3, Users, 
   CheckCircle2, XCircle, Truck, PackageCheck, RefreshCw, 
-  Phone, MapPin, Copy, Check, MessageCircle, Clock, Search, Cake, IndianRupee, AlertCircle
+  Phone, Copy, Check, MessageCircle, Clock, Search, Cake, 
+  AlertCircle, Printer, Volume2, VolumeX, Crown, TrendingUp, 
+  ShoppingBag, Sparkles, X, Award, MapPin
 } from "lucide-react";
 import { supabase } from "../supabase";
 
 export default function SuperAdminPanel() {
-  // Main Tab State ("orders" | "analytics" | "products" | "customers")
   const [activeTab, setActiveTab] = useState<"orders" | "analytics" | "products" | "customers">("orders");
 
   // ==========================================
-  // 1. ORDERS TAB STATES & FUNCTIONS
+  // 1. ORDERS, REALTIME SOUND & KITCHEN SLIP STATES
   // ==========================================
   const [orders, setOrders] = useState<any[]>([]);
   const [addresses, setAddresses] = useState<Record<number, any>>({});
@@ -23,11 +24,57 @@ export default function SuperAdminPanel() {
   const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  
+  // Sound Alert & Kitchen Slip Modal
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [selectedSlipOrder, setSelectedSlipOrder] = useState<any | null>(null);
+  const [profitMarginPercent, setProfitMarginPercent] = useState<number>(45); // Default 45% bakery net margin
+
+  // Play pleasant notification chime using Web Audio API (No external MP3 needed!)
+  const playOrderSound = () => {
+    if (!soundEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playTone = (freq: number, start: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + duration);
+      };
+      playTone(587.33, 0, 0.2);    // D5
+      playTone(880, 0.2, 0.45);    // A5 (Zomato-style chime)
+    } catch (e) {
+      console.log("Audio play blocked until user interaction");
+    }
+  };
 
   useEffect(() => {
     fetchOrdersAndData();
     fetchProducts();
-  }, []);
+
+    // Supabase Realtime Listener for Instant New Orders
+    const channel = supabase
+      .channel("realtime-orders")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "orders" },
+        () => {
+          playOrderSound();
+          fetchOrdersAndData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [soundEnabled]);
 
   const fetchOrdersAndData = async () => {
     setOrdersLoading(true);
@@ -108,7 +155,93 @@ export default function SuperAdminPanel() {
     window.open(url, "_blank");
   };
 
-  // Filtered Orders
+  // ==========================================
+  // 2. LIVE BUSINESS ANALYTICS COMPUTATIONS
+  // ==========================================
+  const validOrders = useMemo(
+    () => orders.filter((o) => o.order_status !== "UTR Rejected"),
+    [orders]
+  );
+
+  const pendingCount = useMemo(
+    () => orders.filter((o) => o.order_status === "Payment Verification Pending").length,
+    [orders]
+  );
+
+  const bakingCount = useMemo(
+    () => orders.filter((o) => o.order_status === "Confirmed & Baking").length,
+    [orders]
+  );
+
+  const totalRevenue = useMemo(
+    () => validOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0),
+    [validOrders]
+  );
+
+  const todayRevenue = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    return validOrders
+      .filter((o) => new Date(o.created_at).toDateString() === todayStr)
+      .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+  }, [validOrders]);
+
+  const estimatedNetProfit = Math.round((totalRevenue * profitMarginPercent) / 100);
+  const avgOrderValue = validOrders.length > 0 ? Math.round(totalRevenue / validOrders.length) : 0;
+
+  // Top Selling Cakes & Popular Weights Calculation
+  const { topCakes, weightBreakdown } = useMemo(() => {
+    const cakeMap: Record<string, { name: string; count: number; revenue: number; image: string }> = {};
+    const weights: Record<string, number> = {};
+
+    validOrders.forEach((order) => {
+      (order.cart_items || []).forEach((item: any) => {
+        const qty = Number(item.quantity || 1);
+        const nameKey = item.name || "Custom Cake";
+        if (!cakeMap[nameKey]) {
+          cakeMap[nameKey] = { name: nameKey, count: 0, revenue: 0, image: item.image || "" };
+        }
+        cakeMap[nameKey].count += qty;
+        cakeMap[nameKey].revenue += Number(item.price || 0) * qty;
+
+        const wKey = item.weight || "500 gm";
+        weights[wKey] = (weights[wKey] || 0) + qty;
+      });
+    });
+
+    const sortedCakes = Object.values(cakeMap).sort((a, b) => b.count - a.count).slice(0, 5);
+    return { topCakes: sortedCakes, weightBreakdown: weights };
+  }, [validOrders]);
+
+  // Customer Spend & VIP Calculation
+  const enrichedCustomers = useMemo(() => {
+    const custMap: Record<string, any> = {};
+
+    Object.values(addresses).forEach((addr: any) => {
+      const phoneKey = addr.phone_number || String(addr.id);
+      if (!custMap[phoneKey]) {
+        custMap[phoneKey] = {
+          ...addr,
+          orderCount: 0,
+          totalSpent: 0,
+        };
+      }
+    });
+
+    validOrders.forEach((o) => {
+      const addr = addresses[o.address_id];
+      if (addr) {
+        const phoneKey = addr.phone_number || String(addr.id);
+        if (custMap[phoneKey]) {
+          custMap[phoneKey].orderCount += 1;
+          custMap[phoneKey].totalSpent += Number(o.total_amount || 0);
+        }
+      }
+    });
+
+    return Object.values(custMap).sort((a: any, b: any) => b.totalSpent - a.totalSpent);
+  }, [addresses, validOrders]);
+
+  // Filtered Orders for Tab 1
   const filteredOrders = orders.filter((order) => {
     const cust = addresses[order.address_id] || {};
     const matchesStatus = statusFilter === "ALL" || order.order_status === statusFilter;
@@ -122,15 +255,8 @@ export default function SuperAdminPanel() {
     return matchesStatus && matchesSearch;
   });
 
-  const pendingCount = orders.filter((o) => o.order_status === "Payment Verification Pending").length;
-  const bakingCount = orders.filter((o) => o.order_status === "Confirmed & Baking").length;
-  const totalRevenue = orders
-    .filter((o) => o.order_status !== "UTR Rejected")
-    .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-
-
   // ==========================================
-  // 3. PRODUCTS TAB STATES & FUNCTIONS (Aapka Purana Code)
+  // 3. PRODUCTS TAB STATES & FUNCTIONS (Aapka Original Code)
   // ==========================================
   const [products, setProducts] = useState<any[]>([]);
   const [editId, setEditId] = useState<number | null>(null);
@@ -278,65 +404,98 @@ export default function SuperAdminPanel() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-16 font-sans text-gray-800">
+    <div className="min-h-screen bg-[#f4f6f9] pb-24 font-sans text-gray-800">
       
       {/* =========================================================
-          TOP COMMAND CENTER HEADER & STATS STRIP
+          1. ULTRA-PREMIUM DARK SLATE GLASS HEADER
           ========================================================= */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white sticky top-0 z-30 shadow-xl border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-4">
           
+          {/* Brand Title */}
           <div className="flex items-center gap-3">
-            <div className="bg-[#e8416d] text-white p-2.5 rounded-xl font-black">
-              🍰
+            <div className="bg-gradient-to-br from-[#e8416d] to-pink-600 p-2.5 rounded-2xl shadow-lg shadow-pink-500/30 flex items-center justify-center">
+              <Crown className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-gray-900">Royal Admin Command Center</h1>
-              <p className="text-xs text-gray-500">Live Business Dashboard & UTR Verification</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                  ROYAL COMMAND CENTER
+                </h1>
+                <span className="hidden sm:inline-flex items-center gap-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" /> LIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">Executive Bakery Operations & Realtime UTR Control</p>
             </div>
           </div>
 
-          {/* Top Quick Live Stats */}
-          <div className="flex items-center gap-3">
-            <div className="bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl text-center">
-              <span className="text-[10px] font-bold text-amber-800 block uppercase">Pending UTR</span>
-              <span className="text-base font-black text-amber-900">{pendingCount}</span>
+          {/* Live KPI Pills + Sound Toggle */}
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <div className="bg-slate-800/90 border border-amber-500/40 px-3 py-1.5 rounded-xl flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <div>
+                <span className="text-[9px] font-bold text-amber-300 block uppercase">Pending UTR</span>
+                <span className="text-sm font-black text-white">{pendingCount}</span>
+              </div>
             </div>
-            <div className="bg-green-50 border border-green-200 px-3 py-1.5 rounded-xl text-center">
-              <span className="text-[10px] font-bold text-green-800 block uppercase">Total Revenue</span>
-              <span className="text-base font-black text-green-900">₹{totalRevenue}</span>
+
+            <div className="bg-slate-800/90 border border-blue-500/40 px-3 py-1.5 rounded-xl hidden sm:block">
+              <span className="text-[9px] font-bold text-blue-300 block uppercase">In Kitchen</span>
+              <span className="text-sm font-black text-white">{bakingCount} Baking</span>
             </div>
+
+            <div className="bg-slate-800/90 border border-emerald-500/40 px-3 py-1.5 rounded-xl">
+              <span className="text-[9px] font-bold text-emerald-300 block uppercase">Today / Total</span>
+              <span className="text-sm font-black text-emerald-400">₹{todayRevenue} <span className="text-slate-400 text-xs">/ ₹{totalRevenue}</span></span>
+            </div>
+
+            {/* Sound Alert Button */}
+            <button
+              onClick={() => {
+                setSoundEnabled(!soundEnabled);
+                if (!soundEnabled) playOrderSound();
+              }}
+              className={`p-2.5 rounded-xl border transition cursor-pointer ${
+                soundEnabled 
+                  ? "bg-pink-500/20 border-pink-500/40 text-pink-300 hover:bg-pink-500/30" 
+                  : "bg-slate-800 border-slate-700 text-slate-400"
+              }`}
+              title={soundEnabled ? "Order Sound Alert ON" : "Sound Muted"}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
             <a 
               href="/" 
               target="_blank" 
-              className="bg-gray-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-gray-800 transition shadow-sm"
+              className="bg-white text-slate-900 px-3.5 py-2 rounded-xl text-xs font-black hover:bg-pink-50 transition shadow-sm"
             >
-              Live Website →
+              Storefront ↗
             </a>
           </div>
-
         </div>
 
-        {/* NAVIGATION TABS BAR */}
-        <div className="max-w-7xl mx-auto px-4 flex gap-2 overflow-x-auto pb-2 hide-scrollbar border-t border-gray-100 pt-2">
+        {/* DESKTOP NAVIGATION TABS */}
+        <div className="max-w-7xl mx-auto px-4 hidden md:flex gap-2 pt-1 pb-3 border-t border-slate-800/80">
           {[
             { id: "orders", label: `📦 Live Orders & UTR (${orders.length})`, badge: pendingCount > 0 ? pendingCount : null },
-            { id: "analytics", label: "📊 Sales & Analytics", badge: null },
-            { id: "products", label: `🎂 Products & Rates (${products.length})`, badge: null },
-            { id: "customers", label: `👥 Customer Directory (${Object.keys(addresses).length})`, badge: null },
+            { id: "analytics", label: "📊 Profit & Best-Sellers", badge: null },
+            { id: "products", label: `🎂 Menu & Rate Control (${products.length})`, badge: null },
+            { id: "customers", label: `👑 VIP Customers (${enrichedCustomers.length})`, badge: null },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === tab.id
-                  ? "bg-[#e8416d] text-white shadow-md shadow-pink-500/20"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-gradient-to-r from-[#e8416d] to-pink-500 text-white shadow-lg shadow-pink-500/25"
+                  : "bg-slate-800/70 text-slate-300 hover:bg-slate-800 hover:text-white"
               }`}
             >
               {tab.label}
               {tab.badge && (
-                <span className="bg-amber-400 text-amber-950 text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse">
+                <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded-full animate-bounce">
                   {tab.badge}
                 </span>
               )}
@@ -346,28 +505,28 @@ export default function SuperAdminPanel() {
       </div>
 
       {/* =========================================================
-          TAB CONTENT AREA
+          2. MAIN TAB CONTENT AREA
           ========================================================= */}
       <div className="max-w-7xl mx-auto px-4 mt-6">
         
         {/* ---------------- TAB 1: LIVE ORDERS & UTR ---------------- */}
         {activeTab === "orders" && (
-          <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="space-y-5">
             
-            {/* Search & Filter Bar */}
-            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+            {/* Search & Status Pills */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200/70 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by Order ID, 12-Digit UTR, Customer Name or Phone..."
+                  placeholder="Search Order #ID, 12-Digit UTR, Customer Name or Mobile..."
                   className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#e8416d]"
                 />
               </div>
 
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
                 {[
                   { label: "All", val: "ALL" },
                   { label: `Pending (${pendingCount})`, val: "Payment Verification Pending" },
@@ -379,9 +538,9 @@ export default function SuperAdminPanel() {
                   <button
                     key={t.val}
                     onClick={() => setStatusFilter(t.val)}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                    className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                       statusFilter === t.val
-                        ? "bg-gray-900 text-white shadow-sm"
+                        ? "bg-slate-900 text-white shadow-sm"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                     }`}
                   >
@@ -391,25 +550,25 @@ export default function SuperAdminPanel() {
 
                 <button
                   onClick={fetchOrdersAndData}
-                  className="p-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 active:scale-95 transition"
-                  title="Refresh Orders"
+                  className="p-2.5 bg-pink-50 text-[#e8416d] border border-pink-200 rounded-xl hover:bg-pink-100 active:scale-95 transition cursor-pointer"
+                  title="Refresh Live Orders"
                 >
                   <RefreshCw className={`w-4 h-4 ${ordersLoading ? "animate-spin" : ""}`} />
                 </button>
               </div>
             </div>
 
-            {/* Orders List */}
+            {/* Orders Feed */}
             {ordersLoading ? (
               <div className="bg-white rounded-2xl p-16 text-center border border-gray-100">
                 <RefreshCw className="w-8 h-8 text-[#e8416d] animate-spin mx-auto mb-3" />
-                <p className="font-bold text-gray-600">Loading live cake orders...</p>
+                <p className="font-bold text-gray-600">Syncing live cake orders...</p>
               </div>
             ) : filteredOrders.length === 0 ? (
               <div className="bg-white rounded-2xl p-16 text-center border border-gray-100">
                 <Cake className="w-14 h-14 text-gray-300 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-gray-700">No Orders Found</h3>
-                <p className="text-xs text-gray-400 mt-1">Jab koi customer checkout karega, toh order yahan turant dikhega.</p>
+                <h3 className="text-lg font-bold text-gray-700">No Matching Orders</h3>
+                <p className="text-xs text-gray-400 mt-1">Jaise hi naya order aayega, ghanti bajegi aur yahan dikhega.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -421,28 +580,31 @@ export default function SuperAdminPanel() {
                   const isDelivered = order.order_status === "Delivered";
                   const isRejected = order.order_status === "UTR Rejected";
 
+                  const stepIndex = isPending ? 1 : isBaking ? 2 : isOut ? 3 : isDelivered ? 4 : 0;
+
                   return (
                     <div
                       key={order.id}
                       className={`bg-white rounded-2xl shadow-sm border-2 overflow-hidden transition-all ${
                         isPending
-                          ? "border-amber-300 shadow-amber-100"
+                          ? "border-amber-300"
                           : isBaking
                           ? "border-blue-300"
                           : isDelivered
-                          ? "border-green-300"
+                          ? "border-emerald-300"
                           : isRejected
                           ? "border-red-200 opacity-75"
-                          : "border-gray-100"
+                          : "border-gray-200"
                       }`}
                     >
-                      <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                      {/* Top Bar + Visual Stepper */}
+                      <div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <span className="bg-gray-900 text-white text-xs font-black px-3 py-1 rounded-lg">
+                          <span className="bg-[#e8416d] text-white text-xs font-black px-3 py-1 rounded-lg">
                             ORDER #{order.id}
                           </span>
-                          <span className="text-xs text-gray-500 font-semibold flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5" />
+                          <span className="text-xs text-slate-300 font-semibold flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-pink-400" />
                             {new Date(order.created_at).toLocaleString("en-IN", {
                               day: "2-digit",
                               month: "short",
@@ -452,35 +614,50 @@ export default function SuperAdminPanel() {
                           </span>
                         </div>
 
-                        <div>
-                          <span
-                            className={`text-xs font-black px-3 py-1 rounded-full inline-flex items-center gap-1.5 ${
-                              isPending
-                                ? "bg-amber-100 text-amber-900 animate-pulse"
-                                : isBaking
-                                ? "bg-blue-100 text-blue-800"
-                                : isOut
-                                ? "bg-purple-100 text-purple-800"
-                                : isDelivered
-                                ? "bg-green-100 text-green-800"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {isPending && "🟡 Payment Verification Pending"}
-                            {isBaking && "👨‍🍳 Confirmed & Baking"}
-                            {isOut && "🚚 Out for Delivery"}
-                            {isDelivered && "✅ Delivered"}
-                            {isRejected && "❌ UTR Rejected"}
+                        {/* 4-Step Visual Progress Pill */}
+                        {!isRejected ? (
+                          <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold">
+                            {[
+                              { s: 1, label: "1. UTR Verify" },
+                              { s: 2, label: "2. Baking" },
+                              { s: 3, label: "3. Out for Delivery" },
+                              { s: 4, label: "4. Delivered" },
+                            ].map((st) => (
+                              <span
+                                key={st.s}
+                                className={`px-2.5 py-0.5 rounded-full ${
+                                  stepIndex === st.s
+                                    ? "bg-amber-400 text-slate-950 font-black"
+                                    : stepIndex > st.s
+                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                    : "bg-slate-800 text-slate-500"
+                                }`}
+                              >
+                                {st.label}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-xs font-black px-3 py-1 rounded-full">
+                            ❌ UTR Rejected
                           </span>
-                        </div>
+                        )}
+
+                        {/* Kitchen Slip Button */}
+                        <button
+                          onClick={() => setSelectedSlipOrder({ order, customer })}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-pink-400" /> Kitchen Slip
+                        </button>
                       </div>
 
                       <div className="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
                         
-                        {/* Cake Details */}
+                        {/* 1. Cake Items */}
                         <div className="lg:col-span-5 space-y-3">
                           <h4 className="text-xs font-black uppercase text-gray-400 tracking-wider">
-                            🎂 Ordered Cakes ({order.cart_items?.length || 0})
+                            🎂 Ordered Items ({order.cart_items?.length || 0})
                           </h4>
 
                           <div className="space-y-2.5">
@@ -504,7 +681,7 @@ export default function SuperAdminPanel() {
                                     )}
                                     {item.isHeartShape && (
                                       <span className="text-[11px] bg-pink-100 text-[#e8416d] px-2 py-0.5 rounded font-bold">
-                                        ❤️ Heart Shape
+                                        ❤️ Heart
                                       </span>
                                     )}
                                     <span className="text-[11px] bg-gray-200 text-gray-800 px-2 py-0.5 rounded font-bold">
@@ -513,8 +690,8 @@ export default function SuperAdminPanel() {
                                   </div>
 
                                   {item.message && (
-                                    <p className="mt-1.5 text-xs bg-yellow-50 border border-yellow-200 text-yellow-900 px-2 py-1 rounded font-semibold">
-                                      ✍️ Msg on Cake: <strong>"{item.message}"</strong>
+                                    <p className="mt-1.5 text-xs bg-amber-50 border border-amber-200 text-amber-950 px-2.5 py-1 rounded-lg font-bold">
+                                      ✍️ Msg on Cake: <span className="underline">"{item.message}"</span>
                                     </p>
                                   )}
                                 </div>
@@ -532,29 +709,27 @@ export default function SuperAdminPanel() {
                           )}
                         </div>
 
-                        {/* Customer & Address */}
+                        {/* 2. Customer Address */}
                         <div className="lg:col-span-4 space-y-2.5 border-t lg:border-t-0 lg:border-l lg:border-r border-gray-100 pt-4 lg:pt-0 lg:px-4">
                           <h4 className="text-xs font-black uppercase text-gray-400 tracking-wider">
-                            📍 Customer & Address
+                            📍 Delivery Address
                           </h4>
 
                           {customer ? (
                             <div className="space-y-2 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="font-black text-gray-900 text-base">{customer.full_name}</span>
-                                <span className="text-[11px] font-bold uppercase bg-gray-100 px-2 py-0.5 rounded text-gray-600">
+                                <span className="text-[10px] font-bold uppercase bg-gray-100 px-2 py-0.5 rounded text-gray-600">
                                   {customer.address_type || "Home"}
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-2">
-                                <a
-                                  href={`tel:${customer.phone_number}`}
-                                  className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg text-xs font-black hover:bg-green-100"
-                                >
-                                  <Phone className="w-3.5 h-3.5" /> {customer.phone_number}
-                                </a>
-                              </div>
+                              <a
+                                href={`tel:${customer.phone_number}`}
+                                className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-black hover:bg-emerald-100"
+                              >
+                                <Phone className="w-3.5 h-3.5" /> {customer.phone_number}
+                              </a>
 
                               <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 text-xs text-gray-700 space-y-1 leading-relaxed">
                                 <p className="font-semibold text-gray-900">{customer.detailed_address}</p>
@@ -562,34 +737,34 @@ export default function SuperAdminPanel() {
                                   <p className="text-[#e8416d] font-bold">🚩 Landmark: {customer.landmark}</p>
                                 )}
                                 <p className="text-gray-500 font-bold">
-                                  {customer.city} — Pincode: <span className="text-gray-900">{customer.pincode}</span>
+                                  {customer.city} — <span className="text-gray-900">{customer.pincode}</span>
                                 </p>
                               </div>
                             </div>
                           ) : (
                             <div className="bg-gray-50 p-4 rounded-xl text-xs text-gray-500 flex items-center gap-2">
                               <AlertCircle className="w-4 h-4 text-amber-500" />
-                              Address linked nahi hai (Address ID: {order.address_id || "None"})
+                              Address ID: {order.address_id || "Not Linked"}
                             </div>
                           )}
                         </div>
 
-                        {/* UTR Check & Action Buttons */}
+                        {/* 3. UTR Verification & 1-Click Actions */}
                         <div className="lg:col-span-3 flex flex-col justify-between space-y-4 border-t lg:border-t-0 pt-4 lg:pt-0">
                           <div>
                             <h4 className="text-xs font-black uppercase text-gray-400 tracking-wider mb-2">
-                              💳 Payment & UTR Check
+                              💳 UPI & UTR Check
                             </h4>
 
                             <div className="bg-amber-50/90 border-2 border-amber-200 rounded-xl p-3 space-y-2">
                               <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-amber-900">Amount Paid:</span>
-                                <span className="text-lg font-black text-green-700">₹{order.total_amount}</span>
+                                <span className="text-xs font-bold text-amber-900">Total Bill:</span>
+                                <span className="text-lg font-black text-emerald-700">₹{order.total_amount}</span>
                               </div>
 
                               <div className="pt-2 border-t border-amber-200/70">
                                 <span className="text-[10px] font-black uppercase text-amber-800 block">
-                                  12-Digit UTR / Ref No:
+                                  12-Digit UTR Number:
                                 </span>
                                 <div className="flex items-center justify-between gap-2 mt-1 bg-white px-2.5 py-1.5 rounded-lg border border-amber-300">
                                   <span className="font-mono font-black text-sm text-gray-900 tracking-wider select-all">
@@ -598,11 +773,11 @@ export default function SuperAdminPanel() {
                                   {order.utr_number && (
                                     <button
                                       onClick={() => handleCopyUtr(order.utr_number)}
-                                      className="text-gray-500 hover:text-gray-900 p-1"
+                                      className="text-gray-500 hover:text-gray-900 p-1 cursor-pointer"
                                       title="Copy UTR"
                                     >
                                       {copiedUtr === order.utr_number ? (
-                                        <Check className="w-4 h-4 text-green-600" />
+                                        <Check className="w-4 h-4 text-emerald-600" />
                                       ) : (
                                         <Copy className="w-4 h-4" />
                                       )}
@@ -622,7 +797,7 @@ export default function SuperAdminPanel() {
                                     await updateOrderStatus(order.id, "Confirmed & Baking");
                                     if (customer) openWhatsAppAlert(order, customer, "verified");
                                   }}
-                                  className="w-full bg-[#10B981] hover:bg-green-600 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition"
+                                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition"
                                 >
                                   <CheckCircle2 className="w-4 h-4" />
                                   ✅ VERIFY & START BAKING
@@ -637,7 +812,7 @@ export default function SuperAdminPanel() {
                                   className="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer transition"
                                 >
                                   <XCircle className="w-4 h-4" />
-                                  ❌ Reject Fake UTR
+                                  ❌ Reject Invalid UTR
                                 </button>
                               </div>
                             )}
@@ -660,7 +835,7 @@ export default function SuperAdminPanel() {
                               <button
                                 disabled={updatingId === order.id}
                                 onClick={() => updateOrderStatus(order.id, "Delivered")}
-                                className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                               >
                                 <PackageCheck className="w-4 h-4" />
                                 🎉 MARK DELIVERED
@@ -694,42 +869,119 @@ export default function SuperAdminPanel() {
           </div>
         )}
 
-        {/* ---------------- TAB 2: SALES & ANALYTICS ---------------- */}
+        {/* ---------------- TAB 2: REAL ANALYTICS, PROFIT & TOP SELLERS ---------------- */}
         {activeTab === "analytics" && (
-          <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <span className="text-xs font-bold text-gray-400 uppercase">Total Gross Revenue</span>
-                <p className="text-3xl font-black text-gray-900 mt-2">₹{totalRevenue}</p>
-                <p className="text-xs text-green-600 font-semibold mt-1">Calculated from verified orders</p>
+          <div className="space-y-6">
+            
+            {/* Executive KPI Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <span className="text-xs font-bold text-gray-400 uppercase">Gross Revenue</span>
+                <p className="text-3xl font-black text-gray-900 mt-1">₹{totalRevenue}</p>
+                <p className="text-xs text-emerald-600 font-bold mt-1">Today: ₹{todayRevenue}</p>
               </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <span className="text-xs font-bold text-gray-400 uppercase">Total Orders Placed</span>
-                <p className="text-3xl font-black text-gray-900 mt-2">{orders.length}</p>
-                <p className="text-xs text-blue-600 font-semibold mt-1">{pendingCount} waiting verification</p>
+
+              <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 rounded-2xl shadow-md text-white">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase opacity-90">Est. Net Profit ({profitMarginPercent}%)</span>
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <p className="text-3xl font-black mt-1">₹{estimatedNetProfit}</p>
+                <div className="mt-2 flex items-center gap-2 text-[11px]">
+                  <span>Margin:</span>
+                  <input
+                    type="range"
+                    min={20}
+                    max={75}
+                    value={profitMarginPercent}
+                    onChange={(e) => setProfitMarginPercent(Number(e.target.value))}
+                    className="w-24 accent-white cursor-pointer"
+                  />
+                  <span className="font-bold">{profitMarginPercent}%</span>
+                </div>
               </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <span className="text-xs font-bold text-gray-400 uppercase">Menu Items Live</span>
-                <p className="text-3xl font-black text-gray-900 mt-2">{products.length}</p>
-                <p className="text-xs text-purple-600 font-semibold mt-1">Cloud synced with Supabase</p>
+
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <span className="text-xs font-bold text-gray-400 uppercase">Average Order Value</span>
+                <p className="text-3xl font-black text-gray-900 mt-1">₹{avgOrderValue}</p>
+                <p className="text-xs text-blue-600 font-bold mt-1">Across {validOrders.length} active orders</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <span className="text-xs font-bold text-gray-400 uppercase">Repeat / VIP Buyers</span>
+                <p className="text-3xl font-black text-[#e8416d] mt-1">
+                  {enrichedCustomers.filter((c: any) => c.orderCount > 1).length}
+                </p>
+                <p className="text-xs text-gray-500 font-semibold mt-1">Out of {enrichedCustomers.length} total customers</p>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center py-12">
-              <BarChart3 className="w-12 h-12 text-[#e8416d] mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-gray-800">Business Growth & Performance</h3>
-              <p className="text-xs text-gray-500 max-w-md mx-auto mt-1">
-                Aapke store par aane wale orders aur revenue ka live graph yahan update ho raha hai. Jaise-jaise orders badhenge, detailed trends yahan dikhenge.
-              </p>
+            {/* Best Selling Cakes & Popular Weights */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Top 5 Best-Selling Cakes */}
+              <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-base font-black text-gray-900 mb-4 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-[#e8416d]" /> Top Best-Selling Cakes
+                </h3>
+
+                {topCakes.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-8 text-center">Orders aane par top cakes ki ranking yahan dikhegi.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {topCakes.map((cake, index) => (
+                      <div key={cake.name} className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-[#e8416d] text-white text-xs font-black flex items-center justify-center">
+                            #{index + 1}
+                          </span>
+                          {cake.image && (
+                            <img src={cake.image} alt={cake.name} className="w-11 h-11 rounded-lg object-cover border bg-white" />
+                          )}
+                          <div>
+                            <p className="font-bold text-sm text-gray-900">{cake.name}</p>
+                            <p className="text-xs text-gray-500">{cake.count} Cakes Sold</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-black text-emerald-600">₹{cake.revenue}</span>
+                          <span className="block text-[10px] text-gray-400">Revenue</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Popular Weights Demand */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-base font-black text-gray-900 mb-4 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-[#e8416d]" /> Weight Demand
+                </h3>
+
+                {Object.keys(weightBreakdown).length === 0 ? (
+                  <p className="text-xs text-gray-400 py-8 text-center">No weight data yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {Object.entries(weightBreakdown).map(([w, count]) => (
+                      <div key={w} className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex items-center justify-between">
+                        <span className="text-xs font-black text-gray-700">{w}</span>
+                        <span className="text-xs font-black bg-pink-100 text-[#e8416d] px-2.5 py-1 rounded-lg">
+                          {count} Sold
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         )}
 
-        {/* ---------------- TAB 3: PRODUCTS, RATES & UPLOAD (Aapka Purana Code) ---------------- */}
+        {/* ---------------- TAB 3: PRODUCTS, RATES & UPLOAD (Original Code) ---------------- */}
         {activeTab === "products" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-200">
-            
-            {/* Upload / Edit Form */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-lg font-bold flex items-center gap-2 text-[#e8416d]">
@@ -817,7 +1069,6 @@ export default function SuperAdminPanel() {
               </form>
             </div>
 
-            {/* Products Grid */}
             <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
               <h2 className="text-lg font-bold mb-5 flex items-center gap-2 text-gray-900"><Package className="w-5 h-5" /> Live Cloud Database ({products.length})</h2>
               {products.length === 0 ? (
@@ -829,7 +1080,7 @@ export default function SuperAdminPanel() {
                       
                       <button 
                         onClick={() => toggleStockStatus(p.id, p.in_stock)} 
-                        className={`absolute top-2 left-2 z-10 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded shadow-sm backdrop-blur-md transition ${p.in_stock === false ? 'bg-red-500/90 text-white' : 'bg-white/90 text-green-600'}`}
+                        className={`absolute top-2 left-2 z-10 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded shadow-sm backdrop-blur-md transition cursor-pointer ${p.in_stock === false ? 'bg-red-500/90 text-white' : 'bg-white/90 text-green-600'}`}
                       >
                         {p.in_stock === false ? <ToggleLeft className="w-3 h-3" /> : <ToggleRight className="w-3 h-3" />}
                         {p.in_stock === false ? 'Out of Stock' : 'In Stock'}
@@ -844,10 +1095,10 @@ export default function SuperAdminPanel() {
                       </div>
                       
                       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition duration-200">
-                        <button onClick={() => handleEdit(p)} className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg shadow text-blue-500 hover:bg-blue-50">
+                        <button onClick={() => handleEdit(p)} className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg shadow text-blue-500 hover:bg-blue-50 cursor-pointer">
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(p.id)} className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg shadow text-red-500 hover:bg-red-50">
+                        <button onClick={() => handleDelete(p.id)} className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg shadow text-red-500 hover:bg-red-50 cursor-pointer">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -857,46 +1108,164 @@ export default function SuperAdminPanel() {
                 </div>
               )}
             </div>
-
           </div>
         )}
 
-        {/* ---------------- TAB 4: CUSTOMER DIRECTORY ---------------- */}
+        {/* ---------------- TAB 4: VIP CUSTOMER DIRECTORY & OFFER BROADCAST ---------------- */}
         {activeTab === "customers" && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 animate-in fade-in duration-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-[#e8416d]" /> Saved Customer Directory ({Object.keys(addresses).length})
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5 text-[#e8416d]" /> Customer CRM & VIP Directory ({enrichedCustomers.length})
             </h2>
 
-            {Object.keys(addresses).length === 0 ? (
+            {enrichedCustomers.length === 0 ? (
               <div className="text-center py-12 text-gray-400">Abhi tak kisi customer ne address save nahi kiya hai.</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.values(addresses).map((cust: any) => (
-                  <div key={cust.id} className="bg-gray-50 border border-gray-200/80 rounded-2xl p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-gray-900 text-sm">{cust.full_name}</span>
-                      <span className="text-[10px] font-bold uppercase bg-pink-100 text-[#e8416d] px-2 py-0.5 rounded">
-                        {cust.address_type || "Home"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600">📞 {cust.phone_number}</p>
-                    <p className="text-xs text-gray-500 line-clamp-2">📍 {cust.detailed_address}, {cust.city} - {cust.pincode}</p>
-                    <a 
-                      href={`https://wa.me/91${cust.phone_number?.replace(/\D/g, "")}`} 
-                      target="_blank"
-                      className="mt-2 block w-full text-center bg-green-50 text-green-700 hover:bg-green-100 py-2 rounded-xl text-xs font-bold transition"
+                {enrichedCustomers.map((cust: any) => {
+                  const isVip = cust.orderCount >= 2 || cust.totalSpent >= 1000;
+                  const cleanPhone = (cust.phone_number || "").replace(/\D/g, "");
+                  const promoMsg = `🎁 *Special VIP Treat from Royal Digital Cakes!*\n\nHi *${cust.full_name}*,\nThank you for loving our cakes! Use code *ROYAL50* on your next order for flat ₹50 OFF! 🎂✨`;
+
+                  return (
+                    <div
+                      key={cust.id}
+                      className={`rounded-2xl p-4 space-y-2.5 border transition ${
+                        isVip ? "bg-amber-50/40 border-amber-300 shadow-sm" : "bg-gray-50 border-gray-200/80"
+                      }`}
                     >
-                      💬 WhatsApp Customer
-                    </a>
-                  </div>
-                ))}
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-gray-900 text-sm flex items-center gap-1.5">
+                          {cust.full_name}
+                          {isVip && (
+                            <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                              👑 VIP
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase bg-white border px-2 py-0.5 rounded text-gray-600">
+                          {cust.orderCount} {cust.orderCount === 1 ? "Order" : "Orders"} • ₹{cust.totalSpent}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-gray-600 font-semibold">📞 {cust.phone_number}</p>
+                      <p className="text-xs text-gray-500 line-clamp-2">
+                        📍 {cust.detailed_address}, {cust.city} - {cust.pincode}
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <a
+                          href={`tel:${cust.phone_number}`}
+                          className="text-center bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 py-2 rounded-xl text-xs font-bold transition"
+                        >
+                          📞 Call
+                        </a>
+                        <a
+                          href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(promoMsg)}`}
+                          target="_blank"
+                          className="text-center bg-emerald-600 text-white hover:bg-emerald-700 py-2 rounded-xl text-xs font-bold transition"
+                        >
+                          🎁 Send VIP Offer
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
       </div>
+
+      {/* =========================================================
+          3. KITCHEN SLIP / THERMAL RECEIPT MODAL
+          ========================================================= */}
+      {selectedSlipOrder && (
+        <div className="fixed inset-0 bg-black/70 z-50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border-2 border-dashed border-gray-300 font-mono text-gray-900 relative">
+            <button
+              onClick={() => setSelectedSlipOrder(null)}
+              className="absolute top-3 right-3 p-1.5 bg-gray-100 rounded-full hover:bg-gray-200 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="text-center border-b-2 border-dashed border-gray-300 pb-3 mb-3">
+              <h3 className="text-base font-black uppercase">🍰 ROYAL DIGITAL CAKES</h3>
+              <p className="text-[11px] text-gray-500">KITCHEN & DELIVERY KOT SLIP</p>
+              <p className="text-xs font-bold mt-1">ORDER #{selectedSlipOrder.order.id}</p>
+            </div>
+
+            <div className="space-y-2 text-xs border-b-2 border-dashed border-gray-300 pb-3 mb-3">
+              <p><strong>SLOT:</strong> {selectedSlipOrder.order.delivery_date || "Today"} ({selectedSlipOrder.order.delivery_time || "Standard"})</p>
+              <p><strong>CUSTOMER:</strong> {selectedSlipOrder.customer?.full_name || "N/A"}</p>
+              <p><strong>PHONE:</strong> {selectedSlipOrder.customer?.phone_number || "N/A"}</p>
+              <p><strong>ADDRESS:</strong> {selectedSlipOrder.customer?.detailed_address}, {selectedSlipOrder.customer?.landmark}</p>
+            </div>
+
+            <div className="space-y-2.5 text-xs border-b-2 border-dashed border-gray-300 pb-3 mb-3">
+              <p className="font-black uppercase">ITEMS TO PREPARE:</p>
+              {(selectedSlipOrder.order.cart_items || []).map((it: any, i: number) => (
+                <div key={i} className="bg-gray-50 p-2 rounded border">
+                  <p className="font-bold">{i + 1}. {it.name} (x{it.quantity || 1})</p>
+                  <p className="text-[11px]">Weight: <strong>{it.weight}</strong> | {it.isEggless ? "EGGLESS" : "REGULAR"} {it.isHeartShape ? "| HEART SHAPE" : ""}</p>
+                  {it.message && (
+                    <p className="mt-1 bg-yellow-100 p-1 font-black text-xs">
+                      MSG ON CAKE: "{it.message}"
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center text-sm font-black mb-4">
+              <span>TOTAL PAID (UPI):</span>
+              <span>₹{selectedSlipOrder.order.total_amount}</span>
+            </div>
+
+            <button
+              onClick={() => window.print()}
+              className="w-full bg-slate-900 text-white font-sans font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-slate-800 cursor-pointer"
+            >
+              <Printer className="w-4 h-4" /> PRINT KITCHEN SLIP
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          4. MOBILE FLOATING BOTTOM NAVIGATION BAR (THUMB FRIENDLY)
+          ========================================================= */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 text-white border-t border-slate-800 z-40 px-2 py-2 flex justify-around items-center shadow-2xl">
+        {[
+          { id: "orders", label: "Orders", icon: ShoppingBag, badge: pendingCount },
+          { id: "analytics", label: "Profit", icon: TrendingUp, badge: 0 },
+          { id: "products", label: "Cakes", icon: Cake, badge: 0 },
+          { id: "customers", label: "VIPs", icon: Users, badge: 0 },
+        ].map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as any)}
+              className={`relative flex flex-col items-center py-1 px-3 rounded-xl transition ${
+                isActive ? "text-[#e8416d] font-black" : "text-slate-400"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-[10px] mt-0.5">{item.label}</span>
+              {item.badge > 0 && (
+                <span className="absolute -top-1 right-1 bg-amber-400 text-slate-950 text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
     </div>
   );
 }
